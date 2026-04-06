@@ -309,16 +309,31 @@ nav{position:fixed;bottom:0;left:0;right:0;z-index:100;
       <div class="dist-summary" id="dist-summary"></div>
     </div>
     <div class="sec">
-      <div class="stl">Ingresos por entidad</div>
+      <div class="stl">Ingresos (salario + extras)</div>
       <div class="dist-card" id="income-card">
         <div class="dist-header">
           <span class="dh-title">Ingresos</span>
           <span class="dh-total income-color" id="income-total">0 EUR</span>
         </div>
+        <div id="salary-from-settings" style="display:none">
+          <div class="dist-row" style="background:rgba(74,222,128,0.05)">
+            <div class="dr-entity">
+              <div class="dr-name" id="salary-row-label">Salario neto</div>
+              <div class="dr-concept">Desde Ajustes &rarr; configura ahi tu salario</div>
+            </div>
+            <div class="dr-amt" style="color:var(--gr)" id="salary-row-amt">0 EUR</div>
+          </div>
+        </div>
+        <div id="salary-not-set" style="display:none">
+          <div style="padding:12px 15px;font-size:12px;color:var(--tm);display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--br)">
+            <span>&#9888;</span>
+            <span>Salario no configurado &mdash; <button onclick="goTo('cfg')" style="background:none;border:none;color:var(--gd);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif;text-decoration:underline">ir a Ajustes</button></span>
+          </div>
+        </div>
         <div id="income-list"></div>
         <div class="add-item-btn" onclick="openDistModal('income')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-          Anadir ingreso
+          Anadir otro ingreso
         </div>
       </div>
     </div>
@@ -355,7 +370,13 @@ nav{position:fixed;bottom:0;left:0;right:0;z-index:100;
       </div>
       <button class="bp" onclick="saveInc()">Guardar configuracion</button>
     </div>
-    <div class="ss"><div class="sl">Entidades (<span id="ecnt">0</span>)</div><div class="em" id="emgr"></div></div>
+    <div class="ss">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div class="sl" style="margin-bottom:0">Entidades (<span id="ecnt">0</span>)</div>
+        <button onclick="openAddEntityModal()" style="background:var(--gdm);border:1px solid rgba(201,168,76,0.4);color:var(--gd);padding:5px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">+ Nueva</button>
+      </div>
+      <div class="em" id="emgr"></div>
+    </div>
     <div class="ss">
       <div class="sl">Seguridad</div>
       <button class="bg" style="margin-top:0" onclick="changePin()">Cambiar PIN</button>
@@ -1016,15 +1037,41 @@ function delMov(movId,eid){
 function rDist(){
   if(!D.distribution) D.distribution={incomes:[],expenses:[]};
   var incomes=D.distribution.incomes;var expenses=D.distribution.expenses;
-  var totalInc=0;for(var i=0;i<incomes.length;i++) totalInc+=incomes[i].amt;
+  var salary=D.cfg.income||0;
+
+  // Salary from settings is always the base income
+  var salaryRow=document.getElementById('salary-from-settings');
+  var salaryNotSet=document.getElementById('salary-not-set');
+  if(salary>0){
+    salaryRow.style.display='block';
+    salaryNotSet.style.display='none';
+    document.getElementById('salary-row-amt').textContent=fmt(salary);
+    document.getElementById('salary-row-label').textContent='Salario neto mensual';
+  } else {
+    salaryRow.style.display='none';
+    salaryNotSet.style.display='block';
+  }
+
+  // Total income = salary from settings + any extra manual incomes
+  var extraInc=0;for(var i=0;i<incomes.length;i++) extraInc+=incomes[i].amt;
+  var totalInc=salary+extraInc;
   var totalExp=0;for(var j=0;j<expenses.length;j++) totalExp+=expenses[j].amt;
+
   document.getElementById('income-total').textContent=fmt(Math.round(totalInc));
   document.getElementById('expense-total').textContent=fmt(Math.round(totalExp));
+
   var net=totalInc-totalExp;var avg=calcMonthlyRate();
   var sumEl=document.getElementById('dist-summary');
-  sumEl.innerHTML='<div class="ds-row"><span class="ds-label">Ingresos mensuales</span><span class="ds-val pos">'+fmt(Math.round(totalInc))+'</span></div>'+
-    '<div class="ds-row"><span class="ds-label">Gastos fijos mensuales</span><span class="ds-val neg">-'+fmt(Math.round(totalExp))+'</span></div>'+
-    '<div class="ds-row"><span class="ds-label">Disponible tras gastos</span><span class="ds-val '+(net>=0?'pos':'neg')+'">'+fmt(Math.round(net))+'</span></div>'+
+
+  var salaryLine=salary>0?'<div class="ds-row"><span class="ds-label">Salario (Ajustes)</span><span class="ds-val pos">'+fmt(salary)+'</span></div>':'';
+  var extraLine=extraInc>0?'<div class="ds-row"><span class="ds-label">Otros ingresos</span><span class="ds-val pos">+'+fmt(Math.round(extraInc))+'</span></div>':'';
+
+  sumEl.innerHTML=
+    salaryLine+
+    extraLine+
+    '<div class="ds-row" style="border-top:1px solid rgba(201,168,76,0.2);margin-top:6px;padding-top:6px"><span class="ds-label" style="font-weight:600">Total ingresos</span><span class="ds-val pos">'+fmt(Math.round(totalInc))+'</span></div>'+
+    '<div class="ds-row"><span class="ds-label">Gastos fijos</span><span class="ds-val neg">-'+fmt(Math.round(totalExp))+'</span></div>'+
+    '<div class="ds-row" style="border-top:1px solid rgba(201,168,76,0.2);margin-top:6px;padding-top:6px"><span class="ds-label" style="font-weight:600">Disponible</span><span class="ds-val '+(net>=0?'pos':'neg')+'" style="font-size:15px">'+fmt(Math.round(net))+'</span></div>'+
     (avg>0?'<div class="ds-row"><span class="ds-label">Ahorro real mensual</span><span class="ds-val pos">'+fmt(Math.round(avg))+'</span></div>':'');
 
   renderDistList('income-list',incomes,'income');
@@ -1073,7 +1120,7 @@ function renderDistList(containerId,items,type){
 function openDistModal(type){
   distMode=type;
   document.getElementById('dist-modal-title').textContent=type==='income'?'Anadir ingreso':'Anadir gasto fijo';
-  document.getElementById('dist-modal-sub').textContent=type==='income'?'Nomina, alquiler cobrado, dividendos...':'Hipoteca, seguro, suscripcion...';
+  document.getElementById('dist-modal-sub').textContent=type==='income'?'Otros ingresos adicionales al salario: alquiler cobrado, dividendos, freelance...':'Hipoteca, seguro, suscripcion...';
   document.getElementById('dist-concept').value='';
   document.getElementById('dist-amt').value='';
   var sel=document.getElementById('dist-entity');sel.innerHTML='<option value="">Sin entidad especifica</option>';
@@ -1381,6 +1428,49 @@ function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.s
 
 
 
+
+// ── ADD ENTITY STANDALONE ──
+var aeSelType = '';
+function openAddEntityModal(){
+  aeSelType = '';
+  document.getElementById('ae-name').value = '';
+  var tg = document.getElementById('ae-type-grid');
+  tg.innerHTML = '';
+  for(var i=0;i<TYPES.length;i++){
+    (function(t){
+      var btn = document.createElement('button');
+      btn.className = 'tch';
+      btn.textContent = t.label;
+      btn.onclick = function(){
+        aeSelType = t.key;
+        var chips = document.querySelectorAll('#ae-type-grid .tch');
+        for(var j=0;j<chips.length;j++) chips[j].classList.remove('on');
+        btn.classList.add('on');
+      };
+      tg.appendChild(btn);
+    })(TYPES[i]);
+  }
+  document.getElementById('add-entity-modal').classList.add('on');
+}
+function closeAddEntityModal(){
+  document.getElementById('add-entity-modal').classList.remove('on');
+}
+function saveNewEntity(){
+  var name = document.getElementById('ae-name').value.trim();
+  if(!name){ toast('Escribe un nombre para la entidad'); return; }
+  if(!aeSelType){ toast('Selecciona el tipo de entidad'); return; }
+  // Check duplicate
+  for(var i=0;i<D.entities.length;i++){
+    if(D.entities[i].name.toLowerCase()===name.toLowerCase()){ toast('Ya existe una entidad con ese nombre'); return; }
+  }
+  var ent = {id: uid(), name: name, type: aeSelType};
+  D.entities.push(ent);
+  sd();
+  closeAddEntityModal();
+  rCfg();
+  toast('Entidad creada: ' + name);
+}
+
 // ── INSTRUCTIONS ──
 function showInstructions(isOnboarding) {
   var screen = document.getElementById('instructions-screen');
@@ -1433,5 +1523,24 @@ initPin();
 </div>
 
 <div id="pdf-spinner"><div class="spinner-ring"></div><span>Generando PDF...</span></div>
+
+<!-- ADD ENTITY MODAL -->
+<div class="ov" id="add-entity-modal" onclick="if(event.target===this)closeAddEntityModal()">
+  <div class="sh">
+    <button class="shc" onclick="closeAddEntityModal()">x</button>
+    <div class="sht">Nueva entidad</div>
+    <div class="shd">Banco, fondo, cuenta, etc.</div>
+    <div class="fl">
+      <label>Nombre</label>
+      <input type="text" id="ae-name" placeholder="Ej: Cuenta ING, Fondo Naranja, Degiro...">
+    </div>
+    <div class="fl">
+      <label>Tipo</label>
+      <div class="tg" id="ae-type-grid"></div>
+    </div>
+    <button class="bp" onclick="saveNewEntity()">Crear entidad</button>
+    <button class="bg" onclick="closeAddEntityModal()">Cancelar</button>
+  </div>
+</div>
 </body>
 </html>
