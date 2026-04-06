@@ -520,20 +520,22 @@ nav{position:fixed;bottom:0;left:0;right:0;z-index:100;
       <button class="bp" onclick="goS2()">Continuar</button>
     </div>
     <div class="stp" id="s2">
-      <div class="mt"><button class="mb on" id="madd" onclick="setEM2('add')">Sumar importe</button><button class="mb" id="mset" onclick="setEM2('set')">Establecer total</button></div>
+      <div class="mt"><button class="mb on" id="madd" onclick="setEM2('add')">Sumar importe</button><button class="mb" id="mset" onclick="setEM2('set')">Actualizar valor total</button></div>
       <div class="fl"><label id="albl">Importe</label><input type="number" id="amt" placeholder="0.00" inputmode="decimal" step="0.01" oninput="updatePreview()"></div>
-      <div class="fl">
+      <div class="fl" id="mths-wrap">
         <label>Meses que has tardado en acumularlo</label>
         <input type="number" id="mths" placeholder="1" inputmode="numeric" min="1" value="1" oninput="updatePreview()">
         <div class="hint">Si tardaste 6 meses en ahorrar 3.000 EUR se prorratea como 500 EUR/mes en graficos.</div>
       </div>
       <div class="fl"><label>Fecha del registro</label><input type="date" id="fdate"></div>
-      <div class="fl"><label>Nota (opcional)</label><input type="text" id="note" placeholder="Ej: bonus anual..."></div>
+      <div class="fl"><label>Nota (opcional)</label><input type="text" id="note" placeholder="Ej: bonus anual, revalorizacion..."></div>
       <div class="prev-box" id="prev-box" style="display:none">
-        <div class="pb-title">Resumen</div>
-        <div class="pb-row"><span class="pb-label">Total</span><span class="pb-val" id="prev-total">--</span></div>
-        <div class="pb-row"><span class="pb-label">Periodo</span><span class="pb-val" id="prev-mths">--</span></div>
-        <div class="pb-row"><span class="pb-label">Equivale a</span><span class="pb-val" id="prev-rate">-- / mes</span></div>
+        <div class="pb-title" id="prev-title">Resumen</div>
+        <div class="pb-row" id="prev-row-total"><span class="pb-label">Total</span><span class="pb-val" id="prev-total">--</span></div>
+        <div class="pb-row" id="prev-row-mths"><span class="pb-label">Periodo</span><span class="pb-val" id="prev-mths">--</span></div>
+        <div class="pb-row" id="prev-row-rate"><span class="pb-label">Equivale a</span><span class="pb-val" id="prev-rate">-- / mes</span></div>
+        <div class="pb-row" id="prev-row-prev" style="display:none"><span class="pb-label">Valor anterior</span><span class="pb-val" id="prev-prev">--</span></div>
+        <div class="pb-row" id="prev-row-delta" style="display:none"><span class="pb-label">Diferencia (este mes)</span><span class="pb-val" id="prev-delta">--</span></div>
       </div>
       <button class="bp" onclick="saveE()">Guardar</button>
       <button class="bg" onclick="showS(1)">Volver</button>
@@ -571,11 +573,11 @@ nav{position:fixed;bottom:0;left:0;right:0;z-index:100;
   <div class="sh">
     <button class="shc" onclick="closePDF()">x</button>
     <div class="sht">Informe PDF</div>
-    <div class="shd">Elige que incluir en el informe</div>
+    <div class="shd">El PDF se abre en una nueva pestana. En iPhone: pulsa el icono de compartir para guardarlo en Archivos o enviarlo.</div>
     <div class="pdf-opts" id="pdf-opts"></div>
     <div class="fl" id="pdf-date-filter" style="display:none"><label>Desde fecha</label><input type="date" id="pdf-date-from"></div>
     <div class="fl" id="pdf-date-to-wrap" style="display:none"><label>Hasta fecha</label><input type="date" id="pdf-date-to"></div>
-    <button class="bp" onclick="generatePDF()">Descargar PDF</button>
+    <button class="bp" onclick="generatePDF()">Generar y abrir PDF</button>
     <button class="bg" onclick="closePDF()">Cancelar</button>
   </div>
 </div>
@@ -918,10 +920,10 @@ function calcMonthlyRate(){
   var deltas=[];
   for(var j=1;j<snapshots.length;j++){
     var d=snapshots[j]-snapshots[j-1];
-    if(d>0) deltas.push(d);
+    deltas.push(d); // include negative months (market losses)
   }
   if(deltas.length>0){
-    // Recent 3-month trend
+    // Recent 3-month trend (average includes gains AND losses)
     var sum=0;for(var k=0;k<deltas.length;k++) sum+=deltas[k];
     return sum/deltas.length;
   }
@@ -1007,15 +1009,34 @@ function openDetail(eid){
   document.getElementById('detail-empty').style.display=entries.length?'none':'block';
   for(var j=0;j<entries.length;j++){
     (function(e){
-      var mo=e.months||1,amtC=e.add?'var(--gr)':'var(--gd)',iconBg=e.add?'rgba(74,222,128,0.12)':'rgba(96,165,250,0.12)';
+      var mo=e.months||1;
+      // For set entries compute delta vs previous value of this entity at that date
+      var prevDateStr=null;
+      for(var px=0;px<entries.length;px++){
+        if(entries[px].date<e.date&&entries[px].id!==e.id) prevDateStr=entries[px].date;
+      }
+      var prevVal=0;
+      if(!e.add){
+        // get value just before this entry's date
+        var prevEntries=D.entries.filter(function(x){return x.entityId===eid&&x.date<e.date;});
+        prevEntries.sort(function(a,b){return a.date<b.date?-1:1;});
+        var pv=0;for(var px2=0;px2<prevEntries.length;px2++){if(prevEntries[px2].add) pv+=prevEntries[px2].amt;else pv=prevEntries[px2].amt;}
+        prevVal=pv<0?0:pv;
+      }
+      var delta=e.add?e.amt:(e.amt-prevVal);
+      var deltaPos=delta>=0;
+      var amtC=e.add?'var(--gr)':(deltaPos?'var(--gr)':'var(--rd)');
+      var iconBg=e.add?'rgba(74,222,128,0.12)':(deltaPos?'rgba(74,222,128,0.08)':'rgba(248,113,113,0.08)');
+      var iconChar=e.add?'+':'~';
       var row=document.createElement('div');row.className='mov-item';
-      row.innerHTML='<div class="mov-icon" style="background:'+iconBg+';color:'+amtC+'">'+(e.add?'+':'=')+'</div>'+
-        '<div class="mov-info"><div class="mov-type" style="color:'+amtC+'">'+(e.add?'Suma':'Total establecido')+'</div>'+
-        '<div class="mov-date">'+fmtDate(e.date)+(mo>1?' &bull; '+mo+' meses':'')+'</div>'+
+      var deltaLabel=e.add?'':(deltaPos?'<div class="mov-months" style="color:var(--gr)">+'+fmtD(delta)+' ganancia</div>':'<div class="mov-months" style="color:var(--rd)">'+fmtD(delta)+' perdida</div>');
+      row.innerHTML='<div class="mov-icon" style="background:'+iconBg+';color:'+amtC+'">'+iconChar+'</div>'+
+        '<div class="mov-info"><div class="mov-type" style="color:'+amtC+'">'+(e.add?'Suma':'Valor actualizado')+'</div>'+
+        '<div class="mov-date">'+fmtDate(e.date)+(e.add&&mo>1?' &bull; '+mo+' meses':'')+'</div>'+
         (e.note?'<div class="mov-note">'+esc(e.note)+'</div>':'')+
         '</div><div class="mov-right">'+
         '<div class="mov-amt" style="color:'+amtC+'">'+fmtD(e.amt)+'</div>'+
-        (e.add&&mo>1?'<div class="mov-months">'+fmtD(e.amt/mo)+'/mes</div>':'')+
+        (e.add&&mo>1?'<div class="mov-months">'+fmtD(e.amt/mo)+'/mes</div>':deltaLabel)+
         '<button class="mov-del">Eliminar</button></div>';
       var btn=row.querySelector('.mov-del');
       btn.onclick=function(ev){ev.stopPropagation();delMov(e.id,eid);};
@@ -1374,17 +1395,35 @@ function generatePDF(){
     }
     var pc=doc.getNumberOfPages();
     for(var p=1;p<=pc;p++){doc.setPage(p);doc.setFontSize(6);doc.setFont('helvetica','normal');doc.setTextColor(160,150,130);doc.text('MiAhorro - '+new Date().toLocaleDateString('es-ES'),ml,ph-6);doc.text(p+'/'+pc,pw-mr,ph-6,{align:'right'});}
-    var dataUri=doc.output('datauristring');
-    var a=document.createElement('a');
-    a.href=dataUri;
-    a.download='myheritage-informe-'+dstr(new Date())+'.pdf';
-    a.target='_blank';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(function(){document.body.removeChild(a);},200);
     document.getElementById('pdf-spinner').classList.remove('on');
-    closePDF();toast('PDF generado - revisa tus descargas');
-  }catch(err){document.getElementById('pdf-spinner').classList.remove('on');toast('Error al generar PDF: '+err.message);console.error(err);}
+    closePDF();
+
+    // iOS Safari: open PDF in new tab - user can then tap share -> Save to Files
+    // Other browsers: use blob URL for direct view/download
+    try {
+      var blob = doc.output('blob');
+      var blobUrl = URL.createObjectURL(blob);
+      var newTab = window.open(blobUrl, '_blank');
+      if(!newTab) {
+        // Popup blocked - fallback to data URI
+        var dataUri = doc.output('datauristring');
+        var a = document.createElement('a');
+        a.href = dataUri;
+        a.download = 'myheritage-informe-'+dstr(new Date())+'.pdf';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function(){document.body.removeChild(a); URL.revokeObjectURL(blobUrl);}, 500);
+        toast('PDF generado');
+      } else {
+        setTimeout(function(){ URL.revokeObjectURL(blobUrl); }, 10000);
+        toast('PDF abierto - pulsa Compartir en Safari para guardarlo');
+      }
+    } catch(e2) {
+      // Last resort: data URI
+      doc.output('datauri');
+      toast('PDF generado');
+    }
+  }catch(err){document.getElementById('pdf-spinner').classList.remove('on');toast('Error: '+err.message);console.error(err);}
   },50);
 }
 
@@ -1400,7 +1439,7 @@ function openM(){
   document.getElementById('fdate').value=dstr(new Date());document.getElementById('amt').value='';
   document.getElementById('mths').value='1';document.getElementById('note').value='';
   document.getElementById('madd').classList.add('on');document.getElementById('mset').classList.remove('on');
-  document.getElementById('albl').textContent='Importe';document.getElementById('prev-box').style.display='none';
+  document.getElementById('albl').textContent='Importe';document.getElementById('prev-box').style.display='none';document.getElementById('mths-wrap').style.display='block';
   showS(1);document.getElementById('modal').classList.add('on');
 }
 function closeM(){document.getElementById('modal').classList.remove('on');}
@@ -1408,8 +1447,54 @@ function ovClick(e){if(e.target===document.getElementById('modal')) closeM();}
 function showS(n){for(var i=1;i<=2;i++){document.getElementById('s'+i).classList.toggle('on',i===n);document.getElementById('d'+i).classList.toggle('on',i===n);}document.getElementById('mtitle').textContent=n===1?'Seleccionar entidad':'Importe y periodo';document.getElementById('msubt').textContent=n===1?'Paso 1 de 2':'Paso 2 de 2';}
 function onEChg(){document.getElementById('newef').style.display=document.getElementById('esel').value==='__new__'?'block':'none';}
 function selT(key,btn){selType=key;var chips=document.querySelectorAll('.tch');for(var i=0;i<chips.length;i++) chips[i].classList.remove('on');btn.classList.add('on');}
-function setEM2(m){entryMode=m;document.getElementById('madd').classList.toggle('on',m==='add');document.getElementById('mset').classList.toggle('on',m==='set');document.getElementById('albl').textContent=m==='add'?'Importe a sumar':'Nuevo total de esta entidad';updatePreview();}
-function updatePreview(){var amt=parseFloat(document.getElementById('amt').value)||0;var mths=parseInt(document.getElementById('mths').value)||1;var box=document.getElementById('prev-box');if(amt>0){box.style.display='block';document.getElementById('prev-total').textContent=fmtD(amt);document.getElementById('prev-mths').textContent=mths+(mths===1?' mes':' meses');document.getElementById('prev-rate').textContent=fmtD(amt/mths)+' / mes';}else box.style.display='none';}
+function setEM2(m){
+  entryMode=m;
+  document.getElementById('madd').classList.toggle('on',m==='add');
+  document.getElementById('mset').classList.toggle('on',m==='set');
+  document.getElementById('albl').textContent=m==='add'?'Importe a sumar':'Nuevo valor total de la entidad';
+  // Show months only for add mode
+  document.getElementById('mths-wrap').style.display=m==='add'?'block':'none';
+  if(m==='set') document.getElementById('mths').value='1';
+  updatePreview();
+}
+function updatePreview(){
+  var amt=parseFloat(document.getElementById('amt').value)||0;
+  var mths=parseInt(document.getElementById('mths').value)||1;
+  var box=document.getElementById('prev-box');
+  if(amt<=0){box.style.display='none';return;}
+  box.style.display='block';
+  if(entryMode==='add'){
+    // ADD mode: show total + months + rate
+    document.getElementById('prev-title').textContent='Resumen';
+    document.getElementById('prev-row-total').style.display='flex';
+    document.getElementById('prev-row-mths').style.display='flex';
+    document.getElementById('prev-row-rate').style.display='flex';
+    document.getElementById('prev-row-prev').style.display='none';
+    document.getElementById('prev-row-delta').style.display='none';
+    document.getElementById('prev-total').textContent=fmtD(amt);
+    document.getElementById('prev-mths').textContent=mths+(mths===1?' mes':' meses');
+    document.getElementById('prev-rate').textContent=fmtD(amt/mths)+' / mes';
+  } else {
+    // SET mode: show previous value + new value + delta
+    var eid=document.getElementById('esel').value;
+    var prevVal=eid?gev(eid):0;
+    var delta=amt-prevVal;
+    var deltaColor=delta>=0?'var(--gr)':'var(--rd)';
+    var deltaSign=delta>=0?'+':'';
+    document.getElementById('prev-title').textContent='Actualizacion de valor';
+    document.getElementById('prev-row-total').style.display='flex';
+    document.getElementById('prev-row-mths').style.display='none';
+    document.getElementById('prev-row-rate').style.display='none';
+    document.getElementById('prev-row-prev').style.display='flex';
+    document.getElementById('prev-row-delta').style.display='flex';
+    document.getElementById('prev-total').textContent=fmtD(amt);
+    document.getElementById('prev-prev').textContent=fmtD(prevVal);
+    document.getElementById('prev-delta').textContent=deltaSign+fmtD(delta);
+    document.getElementById('prev-delta').style.color=deltaColor;
+    document.getElementById('prev-delta').parentElement.querySelector('.pb-label').textContent=
+      delta>=0?'Ganancia imputada este mes':'Perdida imputada este mes';
+  }
+}
 function goS2(){
   var sel=document.getElementById('esel').value;if(!sel){toast('Selecciona una entidad');return;}
   if(sel==='__new__'){var name=document.getElementById('nename').value.trim();if(!name){toast('Escribe el nombre');return;}if(!selType){toast('Selecciona el tipo');return;}var ent={id:uid(),name:name,type:selType};D.entities.push(ent);sd();var esel=document.getElementById('esel');esel.innerHTML='';var opt=document.createElement('option');opt.value=ent.id;opt.textContent=ent.name;opt.selected=true;esel.appendChild(opt);}
